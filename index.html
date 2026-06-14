@@ -728,6 +728,97 @@ body {
 
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 24px; }
 
+/* ── EMAIL CONFIG MODAL ───────────────────────────── */
+.email-modal {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 32px;
+  width: 100%;
+  max-width: 520px;
+  transform: translateY(16px);
+  transition: transform .25s;
+}
+
+.modal-overlay.open .email-modal { transform: translateY(0); }
+
+.email-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.email-preview {
+  background: var(--black);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin: 16px 0;
+  max-height: 260px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.email-preview-subject {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.email-preview-body {
+  font-size: 12px;
+  font-weight: 300;
+  color: rgba(240,237,232,.7);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  font-family: monospace;
+}
+
+.email-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 500;
+  margin-top: 12px;
+}
+
+.email-status-bar.info {
+  background: rgba(45,111,163,.08);
+  border: 1px solid rgba(45,111,163,.2);
+  color: #5b9bd5;
+}
+
+.email-status-bar.success {
+  background: rgba(39,174,96,.08);
+  border: 1px solid rgba(39,174,96,.2);
+  color: var(--green);
+}
+
+/* Finalizar dia button */
+.btn-finalize {
+  background: linear-gradient(135deg, var(--red), #c0201f);
+  border: none;
+  color: #fff;
+  font-weight: 600;
+  letter-spacing: .5px;
+  box-shadow: 0 2px 12px rgba(232,39,42,.25);
+}
+
+.btn-finalize:hover {
+  background: linear-gradient(135deg, #c0201f, #a81c1c);
+  border-color: transparent;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(232,39,42,.35);
+}
+
 /* ── TOAST ────────────────────────────────────────── */
 .toast {
   position: fixed;
@@ -841,6 +932,9 @@ body {
           <button class="btn" id="btnComplete" onclick="toggleDayComplete()">
             ✓ Marcar dia
           </button>
+          <button class="btn btn-finalize" onclick="openEmailModal()">
+            📧 Finalizar dia
+          </button>
         </div>
       </div>
       <div class="focus-bar">
@@ -879,6 +973,56 @@ body {
       <button class="btn" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-complete" onclick="saveTaskEdit()">Salvar</button>
     </div>
+  </div>
+</div>
+
+<!-- EMAIL MODAL -->
+<div class="modal-overlay" id="emailOverlay" onclick="closeEmailModal(event)">
+  <div class="email-modal">
+
+    <div class="email-header">
+      <div>
+        <h3 style="font-family:var(--font-d);font-size:24px;letter-spacing:2px;margin-bottom:4px">
+          📧 FINALIZAR DIA
+        </h3>
+        <div style="font-size:12px;color:var(--muted);font-weight:300">
+          Compile o status e envie o relatório do dia por e-mail
+        </div>
+      </div>
+      <button class="close-btn" onclick="closeEmailModal()" style="position:relative;top:0;right:0">✕</button>
+    </div>
+
+    <!-- Email destination -->
+    <div class="modal-field" style="margin-top:20px">
+      <label>Seu e-mail (destinatário)</label>
+      <input type="email" id="emailDest" placeholder="fabio@ddburger.com.br"
+             oninput="updateEmailPreview()">
+    </div>
+
+    <!-- Preview -->
+    <div style="font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:8px">
+      Pré-visualização do e-mail
+    </div>
+    <div class="email-preview">
+      <div class="email-preview-subject" id="emailSubject"></div>
+      <div class="email-preview-body" id="emailBody"></div>
+    </div>
+
+    <div class="email-status-bar info" id="emailStatusBar">
+      ℹ️ O e-mail será aberto no seu app de e-mail padrão (Gmail, Outlook, Apple Mail)
+    </div>
+
+    <div class="modal-actions" style="margin-top:20px">
+      <button class="btn" onclick="closeEmailModal()">Cancelar</button>
+      <button class="btn" onclick="copyEmailContent()"
+              style="border-color:var(--gold);color:var(--gold)">
+        📋 Copiar conteúdo
+      </button>
+      <button class="btn btn-finalize" onclick="sendEmail()">
+        📧 Abrir e-mail
+      </button>
+    </div>
+
   </div>
 </div>
 
@@ -1525,6 +1669,170 @@ document.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   navigate(-1);
   if (e.key === 'Escape') closeModal();
 });
+
+// ── EMAIL ─────────────────────────────────────────────────────
+
+function buildEmailContent(d) {
+  const day    = DAYS_DATA.find(x => x.d === d);
+  const ph     = PHASES[day.phase];
+  const diary  = state.diaryEntries[d] || {};
+  const done   = !!state.completedDays[d];
+
+  // Tasks status
+  const baseTasks   = day.tasks.filter(t => !state.deletedTasks[t.id]);
+  const customTasks = state.customTasks[d] || [];
+  const allTasks    = [...baseTasks, ...customTasks];
+  const checked     = allTasks.filter(t => state.checkedTasks[t.id]);
+  const unchecked   = allTasks.filter(t => !state.checkedTasks[t.id]);
+  const pctDay      = allTasks.length ? Math.round(checked.length / allTasks.length * 100) : 0;
+
+  // Global progress
+  const allGlobal  = DAYS_DATA.flatMap(x => {
+    const b = x.tasks.filter(t => !state.deletedTasks[t.id]);
+    const c = state.customTasks[x.d] || [];
+    return [...b, ...c];
+  });
+  const checkedGlobal = allGlobal.filter(t => state.checkedTasks[t.id]).length;
+  const pctGlobal     = Math.round(checkedGlobal / allGlobal.length * 100);
+
+  const now     = new Date();
+  const dataFmt = now.toLocaleDateString('pt-BR', { weekday:'long', day:'2-digit', month:'long', year:'numeric' });
+  const horaFmt = now.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+
+  const nota = diary.nota ? `${diary.nota}/10` : 'Não preenchida';
+
+  const subject = `[DD Onboarding] Dia ${String(d).padStart(2,'0')} — ${day.title} · ${pctDay}% concluído`;
+
+  let body = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DD BURGER · ONBOARDING — GERENTE GERAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📅 ${dataFmt.toUpperCase()} · ${horaFmt}
+📍 DIA ${String(d).padStart(2,'0')} DE 30 · ${ph.name}
+📌 ${day.title} — ${day.sub}
+
+▸ STATUS DO DIA: ${done ? '✅ CONCLUÍDO' : '🔄 EM ANDAMENTO'}
+▸ TAREFAS: ${checked.length}/${allTasks.length} (${pctDay}%)
+▸ PROGRESSO GERAL DO ONBOARDING: ${pctGlobal}%
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ TAREFAS CONCLUÍDAS (${checked.length})
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+
+  if (checked.length) {
+    checked.forEach(t => { body += `✓ ${t.text}\n`; });
+  } else {
+    body += `Nenhuma tarefa concluída ainda.\n`;
+  }
+
+  if (unchecked.length) {
+    body += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    body += `⏳ PENDENTES (${unchecked.length})\n`;
+    body += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    unchecked.forEach(t => { body += `○ ${t.text}\n`; });
+  }
+
+  body += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  body += `📓 DIÁRIO DE ONBOARDING — DIA ${String(d).padStart(2,'0')}\n`;
+  body += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+  const questions = [
+    { key:'aprendeu', label:'O que aprendi hoje' },
+    { key:'surpresa', label:'O que me surpreendeu' },
+    { key:'duvida',   label:'Que dúvida surgiu' },
+    { key:'pergunta', label:'O que preciso perguntar' },
+  ];
+
+  questions.forEach(q => {
+    const resp = diary[q.key] ? diary[q.key].trim() : '(não preenchido)';
+    body += `▸ ${q.label.toUpperCase()}\n${resp}\n\n`;
+  });
+
+  body += `▸ COMO ME SINTO HOJE\nNota: ${nota}\n`;
+
+  body += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  body += `🎯 FOCO ESTRATÉGICO DO DIA\n`;
+  body += `"${day.focus}"\n`;
+  body += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  body += `DDBurger · Gente&Gestão · Natal, RN\n`;
+  body += `Relatório gerado automaticamente pelo Sistema de Onboarding DD\n`;
+  body += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+
+  return { subject, body };
+}
+
+function openEmailModal() {
+  // Pré-carregar email salvo
+  const savedEmail = localStorage.getItem('dd_email_dest') || '';
+  document.getElementById('emailDest').value = savedEmail;
+  updateEmailPreview();
+  document.getElementById('emailOverlay').classList.add('open');
+}
+
+function closeEmailModal(e) {
+  if (e && e.target !== document.getElementById('emailOverlay')) return;
+  document.getElementById('emailOverlay').classList.remove('open');
+}
+
+function updateEmailPreview() {
+  const { subject, body } = buildEmailContent(currentDay);
+  document.getElementById('emailSubject').textContent = 'ASSUNTO: ' + subject;
+  document.getElementById('emailBody').textContent = body;
+}
+
+function sendEmail() {
+  const dest = document.getElementById('emailDest').value.trim();
+  if (!dest || !dest.includes('@')) {
+    const bar = document.getElementById('emailStatusBar');
+    bar.className = 'email-status-bar';
+    bar.style.background = 'rgba(232,39,42,.08)';
+    bar.style.borderColor = 'rgba(232,39,42,.2)';
+    bar.style.color = 'var(--red)';
+    bar.textContent = '⚠️ Informe um e-mail válido antes de continuar.';
+    document.getElementById('emailDest').style.borderColor = 'var(--red)';
+    return;
+  }
+
+  // Salvar email para próximas vezes
+  localStorage.setItem('dd_email_dest', dest);
+
+  const { subject, body } = buildEmailContent(currentDay);
+
+  // Montar mailto
+  const mailtoLink = `mailto:${encodeURIComponent(dest)}`
+    + `?subject=${encodeURIComponent(subject)}`
+    + `&body=${encodeURIComponent(body)}`;
+
+  window.location.href = mailtoLink;
+
+  // Marcar dia como concluído automaticamente
+  state.completedDays[currentDay] = true;
+  saveState(state);
+  renderDay(currentDay);
+  buildNav();
+  updateNavChecks();
+
+  const bar = document.getElementById('emailStatusBar');
+  bar.className = 'email-status-bar success';
+  bar.textContent = '✅ E-mail aberto no seu app! Dia marcado como concluído.';
+
+  setTimeout(() => closeEmailModal(), 2000);
+  toast('📧 Relatório do Dia ' + currentDay + ' enviado!');
+}
+
+function copyEmailContent() {
+  const { subject, body } = buildEmailContent(currentDay);
+  const full = `ASSUNTO: ${subject}\n\n${body}`;
+  navigator.clipboard.writeText(full).then(() => {
+    toast('📋 Conteúdo copiado!');
+    const bar = document.getElementById('emailStatusBar');
+    bar.className = 'email-status-bar success';
+    bar.textContent = '✅ Conteúdo copiado! Cole no seu e-mail preferido.';
+  }).catch(() => {
+    toast('Selecione o texto manualmente para copiar');
+  });
+}
 
 // ── INIT ─────────────────────────────────────────────────────
 buildNav();
